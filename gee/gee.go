@@ -3,6 +3,7 @@ package gee
 import (
 	"log"
 	"net/http"
+	"strings"
 )
 
 // HandlerFunc 定义一个请求路由方法
@@ -86,14 +87,36 @@ func (group *RouterGroup) POST(pattern string, handler HandlerFunc) {
 }
 
 
-// Run defines the method to start a http server
+
+// 开始一个服务器
 func (engine *Engine) Run(addr string) (err error) {
 	err = http.ListenAndServe(addr, engine)
 	//ListenAndServe 方法里面会去调用 handler.ServeHTTP() 方法
 	return err
 }
 
+
+
+//定义Use函数，将中间件应用到某个 Group 。
+func (group *RouterGroup) Use(middlewares ...HandlerFunc) {
+	//把中间件函数传给group
+	group.middlewares = append(group.middlewares, middlewares...)
+}
+
 func (engine *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	var middlewares []HandlerFunc
+	//遍历所有的路由组
+	for _, group := range engine.groups {
+		//查看请求路径是不是以路由组前缀开头，如果是的话说明后面要执行这个路由组中的函数
+		if strings.HasPrefix(req.URL.Path, group.prefix) {
+			//准备将这个路由组中的中间件函数添加到c.handlers中，等待执行
+			middlewares = append(middlewares, group.middlewares...)
+		}
+	}
+	//创建c
 	c := newContext(w, req)
+	//添加中间件函数
+	c.handlers = middlewares
+	//执行路由函数
 	engine.router.handle(c)
 }

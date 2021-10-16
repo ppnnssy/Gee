@@ -9,7 +9,7 @@ import (
 // H 给常用的map取个别名，用起来更简洁
 type H map[string]interface{}
 
-//把w和r封装起来。
+//把w和r封装起来。实际执行程序时所有的handler都会集中到c中，然后执行
 type Context struct {
 	// origin objects
 	Writer http.ResponseWriter
@@ -22,7 +22,15 @@ type Context struct {
 
 	//用于输出动态路由查询时的确切URL
 	Params map[string]string
+
+	//增加两个中间件使用的参数
+	//把所有方法（包括中间件函数和待执行的路由方法）保存到handlers中。
+	//其中中间件是由RouterGroup.middlewares []HandlerFunc中传过来的
+	handlers []HandlerFunc
+	//index是记录当前执行到第几个中间件
+	index    int
 }
+
 
 //初始化
 func newContext(w http.ResponseWriter, req *http.Request) *Context {
@@ -31,8 +39,22 @@ func newContext(w http.ResponseWriter, req *http.Request) *Context {
 		Req:    req,
 		Path:   req.URL.Path,
 		Method: req.Method,
+		index: -1,
+
 	}
 }
+
+//执行c.handlers中的所有函数。此时切片中存储了中间件和路由方法，依次执行。
+// ServeHTTP（）执行流程中先向handlers添加中间件，所以会先执行中间件
+func (c *Context) Next() {
+	c.index++
+	s := len(c.handlers)
+	for ; c.index < s; c.index++ {
+		//依次执行中间件中的函数
+		c.handlers[c.index](c)
+	}
+}
+
 
 func (c *Context) PostForm(key string) string {
 	return c.Req.FormValue(key)
@@ -83,6 +105,12 @@ func (c *Context) HTML(code int, html string) {
 	c.Writer.Write([]byte(html))
 }
 
+//失败的方法
+func (c *Context) Fail(code int, err string) {
+	//如果失败，执行到这里，index的值直接变成最大，终止后续程序执行
+	c.index = len(c.handlers)
+	c.JSON(code, H{"message": err})
+}
 
 //一个备用函数，输入动态路由，返回本次请求的确切URL（如果有的话）
 func (c *Context) Param(key string) string {

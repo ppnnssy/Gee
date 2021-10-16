@@ -1,7 +1,6 @@
 package gee
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -71,9 +70,6 @@ func (n *node) search(parts []string, height int) *node {
 	part := parts[height]
 	//查询所有匹配的子节点
 	children := n.matchChildren(part)
-	for k,v:=range children{
-		fmt.Printf("children[%d]:%v\n",k,v)
-	}
 
 	//对每一个匹配的子节点都执行一个查询
 	//返回第一个匹配成功的

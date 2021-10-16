@@ -92,14 +92,21 @@ func (r *router) getRoute(method string, path string) (*node, map[string]string)
 	return nil, nil
 }
 
-//调用路由方法
+
 func (r *router) handle(c *Context) {
 	n, params := r.getRoute(c.Method, c.Path)
-	if n != nil {
-		c.Params = params
+
+	if n != nil {//找到了路由方法，也就是URL对应的叶子结点
 		key := c.Method + "-" + n.pattern
-		r.handlers[key](c)
+		c.Params = params
+		//把找到的路由方法存到c.handlers中
+		c.handlers = append(c.handlers, r.handlers[key])
 	} else {
-		c.String(http.StatusNotFound, "404 NOT FOUND: %s\n", c.Path)
+		//没找到就添加个返回没找到的函数
+		c.handlers = append(c.handlers, func(c *Context) {
+			c.String(http.StatusNotFound, "404 NOT FOUND: %s\n", c.Path)
+		})
 	}
+	//开始执行
+	c.Next()
 }
