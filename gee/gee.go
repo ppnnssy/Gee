@@ -1,8 +1,10 @@
 package gee
 
 import (
+	"html/template"
 	"log"
 	"net/http"
+	"path"
 	"strings"
 )
 
@@ -12,13 +14,13 @@ type HandlerFunc func(*Context)
 //实现路由分组
 type RouterGroup struct {
 	//路由组前缀
-	prefix      string
+	prefix string
 	//应用在该分组上的中间件
 	middlewares []HandlerFunc
 	//当前组的父辈，用来实现路由组的嵌套
-	parent      *RouterGroup
+	parent *RouterGroup
 	//路由组可以共享一个Engine引擎，简介访问各种接口
-	engine      *Engine
+	engine *Engine
 }
 
 // Engine 这个引擎用来实现HTTPServer接口
@@ -30,6 +32,12 @@ type Engine struct {
 	groups []*RouterGroup
 	//路由控制
 	router *router
+
+	//两个给html渲染的字段
+
+	htmlTemplates *template.Template
+	//type FuncMap map[string]interface{}定义在template包里
+	funcMap template.FuncMap
 }
 
 // NewEngine 构造一个Engine，用来初始化。里面有一个路由映射表，存储URl和对应的路由。
@@ -69,10 +77,10 @@ func (group *RouterGroup) addRoute(method string, comp string, handler HandlerFu
 	pattern := group.prefix + comp
 	log.Printf("Route %4s - %s", method, pattern)
 	/*
-	调用了group.engine.router.addRoute来实现了路由的映射。
-	由于Engine从某种意义上继承了RouterGroup的所有属性和方法，因为 (*Engine).engine 是指向自己的。
-	这样实现，我们既可以像原来一样添加路由，也可以通过分组添加路由。
-	 */
+		调用了group.engine.router.addRoute来实现了路由的映射。
+		由于Engine从某种意义上继承了RouterGroup的所有属性和方法，因为 (*Engine).engine 是指向自己的。
+		这样实现，我们既可以像原来一样添加路由，也可以通过分组添加路由。
+	*/
 	group.engine.router.addRoute(method, pattern, handler)
 }
 
@@ -86,16 +94,12 @@ func (group *RouterGroup) POST(pattern string, handler HandlerFunc) {
 	group.addRoute("POST", pattern, handler)
 }
 
-
-
 // 开始一个服务器
 func (engine *Engine) Run(addr string) (err error) {
 	err = http.ListenAndServe(addr, engine)
 	//ListenAndServe 方法里面会去调用 handler.ServeHTTP() 方法
 	return err
 }
-
-
 
 //定义Use函数，将中间件应用到某个 Group 。
 func (group *RouterGroup) Use(middlewares ...HandlerFunc) {
@@ -117,6 +121,73 @@ func (engine *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	c := newContext(w, req)
 	//添加中间件函数
 	c.handlers = middlewares
+	//给engine赋初始值
+	c.engine = engine
 	//执行路由函数
 	engine.router.handle(c)
+
+}
+
+//type FileSystem interface {
+//    Open(name string) (File, error)
+//}
+//FileSystem接口实现了对一系列命名文件的访问。文件路径的分隔符为'/'，不管主机操作系统的惯例如何。
+func (group *RouterGroup) createStaticHandler(relativePath string, fs http.FileSystem) HandlerFunc {
+	//Join返回用/连接的字符串
+	absolutePath := path.Join(group.prefix, relativePath)
+
+	/*
+	   func StripPrefix(prefix string, h Handler) Handler
+	   	StripPrefix返回一个处理器，该处理器会将请求的URL.Path字段中给定前缀prefix去除后再交由h处理。
+	   	StripPrefix会向URL.Path字段中没有给定前缀的请求回复404 page not found。
+
+	   	func FileServer(root FileSystem) Handler
+	   	FileServer返回一个使用FileSystem接口root提供文件访问服务的HTTP处理器。
+	   	要使用操作系统的FileSystem接口实现，可使用http.Dir：
+	*/
+
+	//用fs替换掉absolutePath,用替换好的路径返回一个handler
+	fileServer := http.StripPrefix(absolutePath, http.FileServer(fs))
+	return func(c *Context) {
+		file := c.Param("filepath")
+		// 查看文件是否存在，是否有权访问
+		if _, err := fs.Open(file); err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+
+		fileServer.ServeHTTP(c.Writer, c.Req)
+	}
+}
+
+// 这个方法暴露给用户，可以把磁盘上的文件root映射到relativePath
+//同时注册一个路由方法
+func (group *RouterGroup) Static(relativePath string, root string) {
+	//http.Dir实现了http.FileServer接口，本质上还是一个字符串
+	//返回一个文件处理函数，这里文件路径已经切换成实际存储路径
+	handler := group.createStaticHandler(relativePath, http.Dir(root))
+	//构造一个路径：请求路径+/*filepath，即请求路径下的所有文件
+	urlPattern := path.Join(relativePath, "/*filepath")
+	// 注册路由方法
+	group.GET(urlPattern, handler)
+}
+
+func (engine *Engine) SetFuncMap(funcMap template.FuncMap) {
+	engine.funcMap = funcMap
+}
+
+//全局解析模板（pattern里的模板文件），并把engine中的FuncMap加入到engine.htmlTemplates的字典中
+func (engine *Engine) LoadHTMLGlob(pattern string) {
+	/*
+		func (t *Template) Funcs(funcMap FuncMap) *Template
+			Funcs方法向模板t的函数字典里加入参数funcMap内的键值对。
+			如果funcMap某个键值对的值不是函数类型或者返回值不符合要求会panic。但是，可以对t函数列表的成员进行重写。方法返回t以便进行链式调用。
+
+		func (t *Template) ParseGlob(pattern string) (*Template, error)
+			ParseGlob方法解析匹配pattern的文件里的模板定义并将解析结果与t关联。
+			如果发生错误，会停止解析并返回nil，否则返回(t, nil)。至少要存在一个匹配的文件。
+			功能上和ParseFiles相似
+
+	*/
+	engine.htmlTemplates = template.Must(template.New("").Funcs(engine.funcMap).ParseGlob(pattern))
 }

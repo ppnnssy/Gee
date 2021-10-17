@@ -29,6 +29,7 @@ type Context struct {
 	handlers []HandlerFunc
 	//index是记录当前执行到第几个中间件
 	index    int
+	engine *Engine
 }
 
 
@@ -98,11 +99,16 @@ func (c *Context) Data(code int, data []byte) {
 	c.Writer.Write(data)
 }
 
-//发送html类型数据
-func (c *Context) HTML(code int, html string) {
+//发送html文件
+func (c *Context) HTML(code int, name string, data interface{}) {
 	c.SetHeader("Content-Type", "text/html")
 	c.Status(code)
-	c.Writer.Write([]byte(html))
+
+	//func (t *Template) ExecuteTemplate(wr io.Writer, name string, data interface{}) error
+	//ExecuteTemplate方法类似Execute，但是使用名为name的t关联的模板产生输出。
+	if err := c.engine.htmlTemplates.ExecuteTemplate(c.Writer, name, data); err != nil {
+		c.Fail(500, err.Error())
+	}
 }
 
 //失败的方法
