@@ -53,6 +53,13 @@ func NewEngine() *Engine {
 	return engine
 }
 
+// 默认使用两个中间件
+func Default() *Engine {
+	engine := NewEngine()
+	engine.Use(Logger(), Recovery())
+	return engine
+}
+
 //创建一个新的Group。一般使用engine调用
 func (group *RouterGroup) Group(prefix string) *RouterGroup {
 	//这里是指针传递地址，所以可以在接下来的操作中直接修改

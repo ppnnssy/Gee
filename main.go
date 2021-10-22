@@ -20,7 +20,7 @@ func FormatAsDate(t time.Time) string {
 }
 
 func main() {
-	r := gee.NewEngine()
+	r := gee.Default()
 	r.Use(gee.Logger())
 	//设置FuncMap，key是string，value是一个函数
 	r.SetFuncMap(template.FuncMap{
