@@ -34,9 +34,10 @@ type Engine struct {
 	router *router
 
 	//两个给html渲染的字段
-
+	//用来将所有模板加载进内存
 	htmlTemplates *template.Template
 	//type FuncMap map[string]interface{}定义在template包里
+	//所有的自定义模板渲染函数
 	funcMap template.FuncMap
 }
 
@@ -48,6 +49,7 @@ func NewEngine() *Engine {
 	engine.RouterGroup = &RouterGroup{engine: engine}
 	//同样的groups中也只有初始的engine.RouterGroup
 	engine.groups = []*RouterGroup{engine.RouterGroup}
+	engine.htmlTemplates=template.New("")
 	return engine
 }
 
@@ -174,6 +176,10 @@ func (group *RouterGroup) Static(relativePath string, root string) {
 
 func (engine *Engine) SetFuncMap(funcMap template.FuncMap) {
 	engine.funcMap = funcMap
+
+	//把engine.funcMap赋值给engine.htmlTemplates的函数字典
+	//这里对engine.funcMap的值有要求，必须是函数并且有返回值
+	engine.htmlTemplates.Funcs(engine.funcMap)
 }
 
 //全局解析模板（pattern里的模板文件），并把engine中的FuncMap加入到engine.htmlTemplates的字典中
@@ -189,5 +195,5 @@ func (engine *Engine) LoadHTMLGlob(pattern string) {
 			功能上和ParseFiles相似
 
 	*/
-	engine.htmlTemplates = template.Must(template.New("").Funcs(engine.funcMap).ParseGlob(pattern))
+	engine.htmlTemplates = template.Must(engine.htmlTemplates.ParseGlob(pattern))
 }
